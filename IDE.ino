@@ -3,9 +3,6 @@
 #include <Wire.h>
 #include <LiquidCrystal_I2C.h>
 
-// =========================================================================
-// 1. DEKLARASI PIN, SENSOR, DAN VARIABEL GLOBAL
-// =========================================================================
 #define DHTTYPE DHT22
 DHT dht1(2, DHTTYPE); DHT dht2(3, DHTTYPE);
 DHT dht3(4, DHTTYPE); DHT dht4(5, DHTTYPE); 
@@ -26,20 +23,15 @@ unsigned long lastFuzzyTime = 0;
 unsigned long lastLcdTime = 0;
 int lcdState = 0; 
 
-// --- VARIABEL KENDALI AKTUATOR & PROTEKSI (FINAL) ---
 int currentACTemp = 24;
 int currentHeaterState = 0; 
 unsigned long lastACChange = 0;     
 unsigned long lastHeaterChange = 0;
 
-// TIMERS PROTEKSI INDUSTRI
-const unsigned long STARTUP_LOCK   = 60000; // 1 Menit Heater Dilarang Nyala di awal
-const unsigned long COOLDOWN_AC    = 300000; // 5 Menit Jeda Kompresor AC
-const unsigned long COOLDOWN_HEATER= 180000;  // 1 Menit Jeda Relay Heater (Anti Chattering)
+const unsigned long STARTUP_LOCK   = 60000; 
+const unsigned long COOLDOWN_AC    = 300000;
+const unsigned long COOLDOWN_HEATER= 180000;
 
-// =========================================================================
-// 2. KODE IR RAW AC PANASONIC
-// =========================================================================
 const unsigned int ON_16[] = 
 {
  3030,1670, 380,1170, 380,1170, 380,470, 380,470, 380,470, 380,1120, 380,520, 
@@ -135,7 +127,6 @@ const unsigned int ON_24[] =
   380,1170, 380
 };
 
-// Prototipe fungsi
 void kirimKodeAC(int suhu);
 
 // Fungsi Trapesium (TrapMF) Fuzzy
@@ -146,9 +137,6 @@ float trap(float x, float a, float b, float c, float d) {
   return (d - x) / (d - c);
 }
 
-// =========================================================================
-// 3. PENGATURAN AWAL SISTEM (SETUP)
-// =========================================================================
 void setup() {
 
   // Baca sensor 1x untuk inisialisasi Delta Error
@@ -173,13 +161,12 @@ void setup() {
  // --- KONFIGURASI RELAY ACTIVE HIGH ---
   pinMode(RELAY_HEATER_1, OUTPUT);
   pinMode(RELAY_HEATER_2, OUTPUT);
-  digitalWrite(RELAY_HEATER_1, LOW); // MATI di awal
-  digitalWrite(RELAY_HEATER_2, LOW); // MATI di awal
+  digitalWrite(RELAY_HEATER_1, LOW); 
+  digitalWrite(RELAY_HEATER_2, LOW); 
   currentHeaterState = 0;
   
   delay(1000); 
   
-  // Nyalakan AC awal ke 24C untuk pemanasan kompresor (1x tembak)
   kirimKodeAC(24); 
   currentACTemp = 24; 
   
@@ -188,17 +175,12 @@ void setup() {
   lastFuzzyTime = millis();
   lastLcdTime = millis();
   
-  // Penanda Waktu Nyala (Heater dikunci selama 1 menit pertama)
   lastHeaterChange = millis();
 }
 
-// =========================================================================
-// 4. LOOPING UTAMA (KENDALI KESELURUHAN)
-// =========================================================================
 void loop() {
   unsigned long now = millis();
 
-  // --- BLOK A: UPDATE LAYAR LCD (Setiap 3 Detik) ---
   if (now - lastLcdTime >= 3000) {
     lastLcdTime = now;
     lcdState++;
@@ -217,17 +199,14 @@ void loop() {
     }
   }
 
-  // --- BLOK B: PEMBACAAN SENSOR & FUZZY LOGIC (Setiap 10 Detik) ---
   if (now - lastFuzzyTime >= 10000) { 
     lastFuzzyTime = now;
     
-    // 1. Baca 4 Sensor DHT22
     t1 = dht1.readTemperature(); h1 = dht1.readHumidity();
     t2 = dht2.readTemperature(); h2 = dht2.readHumidity();
     t3 = dht3.readTemperature(); h3 = dht3.readHumidity();
     t4 = dht4.readTemperature(); h4 = dht4.readHumidity();
     
-    // 2. Kalkulasi Rata-Rata (Spatial Averaging)
     int validT = 0, validH = 0;
     float sumT = 0, sumH = 0;
     if(!isnan(t1)){ sumT += t1; validT++; } if(!isnan(h1)){ sumH += h1; validH++; }
@@ -238,9 +217,7 @@ void loop() {
     if (validT > 0) avgSuhu = sumT / validT;
     if (validH > 0) avgLembab = sumH / validH;
     
-    // --- TAMBAHKAN FAILSAFE INI ---
     if (validT == 0 || validH == 0) {
-        // Jika tidak ada data sensor valid, matikan semua aktuator demi keamanan!
         digitalWrite(RELAY_HEATER_1, LOW);
         digitalWrite(RELAY_HEATER_2, LOW);
         currentHeaterState = 0;
@@ -248,11 +225,9 @@ void loop() {
         lcd.clear();
         lcd.setCursor(0, 0); lcd.print("SYSTEM ERROR!");
         lcd.setCursor(0, 1); lcd.print("SENSOR DISCONNECT");
-        return; // Hentikan kalkulasi fuzzy loop ini
-    }
-    // =========================================================================
-    // KENDALI AC (SUHU): Tahan 16°C sampai 26.5°C, lalu Rem Bertahap
-    // =========================================================================
+        return; 
+    
+    // KENDALI AC (SUHU)
     float eT = avgSuhu - SETPOINT_SUHU;
     float deT = eT - last_eSuhu;
 
@@ -262,7 +237,6 @@ void loop() {
     float T_E_PS = trap(eT, 0.5, 1.0, 1.5, 2.0);   
     float T_E_PB = trap(eT, 1.5, 2.0, 20.0, 20.0); 
 
-    // Toleransi deT dilebarkan agar noise sensor tidak membuat AC loncat-loncat
     float T_dE_NB = trap(deT, -5.0, -5.0, -0.2, -0.1);
     float T_dE_NS = trap(deT, -0.2, -0.1, -0.05, 0.05);
     float T_dE_Z  = trap(deT, -0.05, 0.05, 0.1, 0.2); 
@@ -290,10 +264,9 @@ void loop() {
     }
     float targetAC = (denT > 0) ? (numT / denT) : 24.0;
     
-    // Histeresis AC (Diperlebar batasnya agar tidak chattering 16-18-16)
     int AC_Output_Final = currentACTemp; 
     if (abs(targetAC - currentACTemp) > 1.2) { 
-        // Hanya ganti target suhu jika perintah fuzzy bergeser lebih dari 1.2 derajat
+        
         if (targetAC <= 16.5) AC_Output_Final = 16;
         else if (targetAC > 16.5 && targetAC <= 18.5) AC_Output_Final = 18;
         else if (targetAC > 18.5 && targetAC <= 20.5) AC_Output_Final = 20;
@@ -301,20 +274,17 @@ void loop() {
         else if (targetAC > 22.5) AC_Output_Final = 24;
     }
 
-    // =========================================================================
-    // KENDALI HEATER: MODIFIKASI RENTANG (Ide: 100-80% Lvl 2 | 80-60% Lvl 1 | <60% Mati)
-    // =========================================================================
+    
+    // KENDALI HEATER
     float eH = avgLembab - SETPOINT_KELEMBABAN; // Error Target 50%
     float deH = eH - last_eLembab;
 
-    // Titik Trapesium digeser ke batas 10 (Target 60%) dan 30 (Target 80%)
     float H_E_NB = trap(eH, -50.0, -50.0, -25.0, -15.0); 
     float H_E_NS = trap(eH, -25.0, -15.0, -5.0, 0.0);    
-    float H_E_Z  = trap(eH, -5.0, -2.0, 8.0, 12.0);      // < 60% = Mati
-    float H_E_PS = trap(eH, 8.0, 12.0, 28.0, 32.0);      // 60-80% = Lvl 1
-    float H_E_PB = trap(eH, 28.0, 32.0, 50.0, 50.0);     // 80-100% = Lvl 2
+    float H_E_Z  = trap(eH, -5.0, -2.0, 8.0, 12.0);      
+    float H_E_PS = trap(eH, 8.0, 12.0, 28.0, 32.0);     
+    float H_E_PB = trap(eH, 28.0, 32.0, 50.0, 50.0);   
 
-    // Toleransi deH dilebarkan dari noise
     float H_dE_NB = trap(deH, -20.0, -20.0, -2.0, -1.0);
     float H_dE_NS = trap(deH, -2.0, -1.0, -0.2, 0.2);
     float H_dE_Z  = trap(deH, -0.2, 0.2, 1.0, 2.0);
@@ -349,10 +319,8 @@ void loop() {
       Heater_Output_Final = currentHeaterState;
     }
 
-    // =========================================================================
-    // EKSEKUSI HARDWARE DENGAN SISTEM PENGAMAN
-    // =========================================================================
-    
+
+    // EKSEKUSI AKTUATOR
     if (AC_Output_Final != currentACTemp) {
       if (now - lastACChange >= COOLDOWN_AC || lastACChange == 0) {
         kirimKodeAC(AC_Output_Final);
@@ -380,9 +348,7 @@ void loop() {
       }
     }
     
-    // =========================================================================
     // PENGIRIMAN DATA 16 PARAMETER KE MATLAB
-    // =========================================================================
     // Format: Suhu, Lembab, AC, Heater, eT, deT, eH, deH, T1, H1, T2, H2, T3, H3, T4, H4
     Serial.print(avgSuhu);          Serial.print(",");
     Serial.print(avgLembab);        Serial.print(",");
@@ -406,9 +372,7 @@ void loop() {
   }
 }
 
-// =========================================================================
-// FUNGSI PENGIRIMAN IR RAW AC PANASONIC
-// =========================================================================
+// PENGIRIMAN IR RAW AC
 void kirimKodeAC(int suhu) {
   int khz = 38; 
   int jumlahTembakan = 2; // Tembak 2x agar AC tidak budeg menerima sinyal
