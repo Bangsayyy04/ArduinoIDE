@@ -28,10 +28,12 @@ int currentHeaterState = 0;
 unsigned long lastACChange = 0;     
 unsigned long lastHeaterChange = 0;
 
+// Timers
 const unsigned long STARTUP_LOCK   = 60000; 
 const unsigned long COOLDOWN_AC    = 300000;
 const unsigned long COOLDOWN_HEATER= 180000;
 
+// Kode IR AC
 const unsigned int ON_16[] = 
 {
  3030,1670, 380,1170, 380,1170, 380,470, 380,470, 380,470, 380,1120, 380,520, 
@@ -158,7 +160,7 @@ void setup() {
   digitalWrite(IR_SEND_PIN, LOW);
   IrSender.begin(IR_SEND_PIN);
   
- // --- KONFIGURASI RELAY ACTIVE HIGH ---
+ // KONFIGURASI RELAY ACTIVE HIGH 
   pinMode(RELAY_HEATER_1, OUTPUT);
   pinMode(RELAY_HEATER_2, OUTPUT);
   digitalWrite(RELAY_HEATER_1, LOW); 
@@ -178,6 +180,7 @@ void setup() {
   lastHeaterChange = millis();
 }
 
+// Loop Kendali
 void loop() {
   unsigned long now = millis();
 
@@ -216,7 +219,8 @@ void loop() {
     
     if (validT > 0) avgSuhu = sumT / validT;
     if (validH > 0) avgLembab = sumH / validH;
-    
+
+    // Fail Safe
     if (validT == 0 || validH == 0) {
         digitalWrite(RELAY_HEATER_1, LOW);
         digitalWrite(RELAY_HEATER_2, LOW);
@@ -225,7 +229,7 @@ void loop() {
         lcd.clear();
         lcd.setCursor(0, 0); lcd.print("SYSTEM ERROR!");
         lcd.setCursor(0, 1); lcd.print("SENSOR DISCONNECT");
-        return; 
+        return;  // Hentikan kalkulasi fuzzy loop
     
     // KENDALI AC (SUHU)
     float eT = avgSuhu - SETPOINT_SUHU;
