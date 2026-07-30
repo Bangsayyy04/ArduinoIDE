@@ -1,0 +1,194 @@
+
+% PROGRAM ANALISIS GRAFIK BAB 4 (SISTEM KENDALI FUZZY)
+clc; clear; close all;
+
+% 1. PENGATURAN AWAL & PARAMETER 
+filename = 'DataKeseluruhan.xlsx'; % Nama file Excel
+huruf = 'Times New Roman';     % Font standar laporan skripsi
+setpointSuhu = 25.0;           % Target Suhu (°C)
+setpointLembab = 50.0;         % Target Kelembaban (%)
+fprintf('Membaca data dari %s...\n', filename);
+
+% 2. IMPORT DATA DARI EXCEL 
+data = readtable(filename, 'Sheet', ['Gangguan Es Batu']);
+Waktu       = data.Waktu;
+Waktu_Menit = Waktu / 60;
+AvgSuhu     = data.AvgSuhu;
+AvgLembab   = data.AvgLembab;
+AC          = data.AC;
+Heater      = data.Heater;
+T1 = data.T1; T2 = data.T2; T3 = data.T3; T4 = data.T4;
+H1 = data.H1; H2 = data.H2; H3 = data.H3; H4 = data.H4;
+
+% 3. PERHITUNGAN STEADY-STATE ACTUAL 
+fprintf('Memproses Grafik Analisis untuk Bab 4...\n');
+% Mengambil 50 data terakhir untuk memastikan rata-rata Steady-State yang akurat
+idx_ss = max(1, length(AvgSuhu)-50); 
+ss_Suhu = mean(AvgSuhu(idx_ss:end));
+ss_Lembab = mean(AvgLembab(idx_ss:end));
+
+% Menghitung Steady-State Error
+error_Suhu = abs(setpointSuhu - ss_Suhu);
+error_Lembab = abs(setpointLembab - ss_Lembab);
+
+% 4. ALGORITMA ANALISIS GANGGUAN (MANUAL CONTROL THEORY) 
+% A. LOGIKA SUHU (Karakteristik Gangguan: PENURUNAN SUHU)
+% 1. Puncak Gangguan & Toleransi
+[Puncak_Gangguan_Suhu, idx_Puncak_Suhu] = min(AvgSuhu); % Gunakan MIN karena suhu anjlok
+toleransi_pulih_Suhu = ss_Suhu - 0.5; % Suhu dianggap pulih jika kembali ke SS - 0.5 derajat
+
+% 2. Recovery Time (Dari titik terendah hingga menyentuh toleransi pulih)
+idx_pulih_temp_Suhu = find(AvgSuhu(idx_Puncak_Suhu:end) >= toleransi_pulih_Suhu, 1);
+if ~isempty(idx_pulih_temp_Suhu)
+    RecoveryTime_Suhu = Waktu(idx_Puncak_Suhu + idx_pulih_temp_Suhu - 1) - Waktu(idx_Puncak_Suhu); 
+else
+    RecoveryTime_Suhu = NaN; 
+end
+
+% 3. Settling Time (Waktu dari awal uji hingga suhu konsisten berada di batas aman)
+idx_out_Suhu = find(abs(AvgSuhu - ss_Suhu) > 0.5, 1, 'last');
+if ~isempty(idx_out_Suhu) && idx_out_Suhu < length(Waktu)
+    SettlingTime_Suhu = Waktu(idx_out_Suhu + 1);
+else
+    SettlingTime_Suhu = NaN;
+end
+
+% 4. Rise Time (Waktu yang dibutuhkan untuk pulih dari 10% ke 90% rentang gangguan)
+delta_S = ss_Suhu - Puncak_Gangguan_Suhu;
+L10_S = Puncak_Gangguan_Suhu + 0.1 * delta_S;
+L90_S = Puncak_Gangguan_Suhu + 0.9 * delta_S;
+idx_10_S = find(AvgSuhu(idx_Puncak_Suhu:end) >= L10_S, 1) + idx_Puncak_Suhu - 1;
+idx_90_S = find(AvgSuhu(idx_Puncak_Suhu:end) >= L90_S, 1) + idx_Puncak_Suhu - 1;
+if ~isempty(idx_10_S) && ~isempty(idx_90_S)
+    RiseTime_Suhu = Waktu(idx_90_S) - Waktu(idx_10_S);
+else
+    RiseTime_Suhu = NaN;
+end
+Overshoot_Suhu = (delta_S / setpointSuhu) * 100; % Presentase deviasi
+
+% B. LOGIKA KELEMBABAN (Karakteristik Gangguan: LONJAKAN KELEMBABAN)
+% 1. Puncak Gangguan & Toleransi
+[Puncak_Gangguan_Lembab, idx_Puncak_Lembab] = max(AvgLembab); % Gunakan MAX karena lembab melonjak
+toleransi_pulih_Lembab = ss_Lembab + 1.5; % Dianggap pulih jika kembali ke SS + 1.5%
+
+% 2. Recovery Time
+idx_pulih_temp_Lembab = find(AvgLembab(idx_Puncak_Lembab:end) <= toleransi_pulih_Lembab, 1);
+if ~isempty(idx_pulih_temp_Lembab)
+    RecoveryTime_Lembab = Waktu(idx_Puncak_Lembab + idx_pulih_temp_Lembab - 1) - Waktu(idx_Puncak_Lembab); 
+else
+    RecoveryTime_Lembab = NaN;
+end
+
+% 3. Settling Time
+idx_out_Lembab = find(abs(AvgLembab - ss_Lembab) > 1.5, 1, 'last');
+if ~isempty(idx_out_Lembab) && idx_out_Lembab < length(Waktu)
+    SettlingTime_Lembab = Waktu(idx_out_Lembab + 1);
+else
+    SettlingTime_Lembab = NaN;
+end
+
+% 4. Fall Time (Waktu yang dibutuhkan untuk turun memulihkan diri dari 90% ke 10%)
+delta_L = Puncak_Gangguan_Lembab - ss_Lembab;
+L90_L = ss_Lembab + 0.9 * delta_L;
+L10_L = ss_Lembab + 0.1 * delta_L;
+idx_90_L = find(AvgLembab(idx_Puncak_Lembab:end) <= L90_L, 1) + idx_Puncak_Lembab - 1;
+idx_10_L = find(AvgLembab(idx_Puncak_Lembab:end) <= L10_L, 1) + idx_Puncak_Lembab - 1;
+if ~isempty(idx_10_L) && ~isempty(idx_90_L)
+    FallTime_Lembab = Waktu(idx_10_L) - Waktu(idx_90_L);
+else
+    FallTime_Lembab = NaN;
+end
+Overshoot_Lembab = (delta_L / setpointLembab) * 100;
+
+% GRAFIK 1: Analisis Respons Transien Suhu & Kelembaban (Steady-State)
+figure('Name', 'Bab 4: Respons Transien Sistem', 'Color', 'w', 'Position', [50, 50, 900, 850]);
+
+% -SUBPLOT 1: SUHU 
+subplot(2,1,1);
+plot(Waktu_Menit, AvgSuhu, 'b', 'LineWidth', 2.5); hold on; grid on; 
+yline(setpointSuhu, '--r', 'Setpoint', 'LineWidth', 2, 'FontName', huruf);
+
+title('Karakteristik Respons Transien Suhu Ruangan', 'FontName', huruf, 'FontSize', 14, 'FontWeight', 'bold');
+ylabel('Suhu Aktual (°C)', 'FontName', huruf); 
+xlabel('Waktu Pengujian (Menit)', 'FontName', huruf); 
+xlim([0 max(Waktu_Menit)]); 
+
+% Teks Anotasi Performa Suhu
+teks_Suhu = sprintf(['Analisis Performa (Suhu):\n', ...
+                     'Rise/Fall Time: %.2f s\n', ...
+                     'Settling Time: %.2f s\n', ...
+                     'Max Deviasi/Overshoot: %.2f %%\n', ...
+                     'Min Temp: %.2f ^\\circC\n', ...
+                     'Steady-State Aktual: %.2f ^\\circC\n', ...
+                     'Steady-State Error: %.4f ^\\circC\n', ...
+                     '--- Analisis Gangguan ---\n', ...
+                     'Puncak Gangguan: %.2f ^\\circC\n', ...
+                     'Recovery Time: %.2f s'], ...
+                     RiseTime_Suhu, SettlingTime_Suhu, Overshoot_Suhu, ...
+                     Puncak_Gangguan_Suhu, ss_Suhu, error_Suhu, ...
+                     Puncak_Gangguan_Suhu, RecoveryTime_Suhu);
+                     
+annotation('textbox', [0.65 0.65 0.35 0.20], 'String', teks_Suhu, ...
+           'FitBoxToText', 'on', 'BackgroundColor', 'w', 'EdgeColor', 'k', ...
+           'FontName', huruf, 'FontSize', 10);
+
+% SUBPLOT 2: KELEMBABAN 
+subplot(2,1,2);
+plot(Waktu_Menit, AvgLembab, 'Color', [0 0.5 0], 'LineWidth', 2.5); hold on; grid on; 
+yline(setpointLembab, '--r', 'Setpoint', 'LineWidth', 2, 'FontName', huruf);
+
+title('Karakteristik Respons Transien Kelembaban Ruangan', 'FontName', huruf, 'FontSize', 14, 'FontWeight', 'bold');
+ylabel('Kelembaban Aktual (%)', 'FontName', huruf); 
+xlabel('Waktu Pengujian (Menit)', 'FontName', huruf); 
+xlim([0 max(Waktu_Menit)]); 
+
+% Teks Anotasi Performa Kelembaban
+teks_Lembab = sprintf(['Analisis Performa (Kelembaban):\n', ...
+                       'Rise/Fall Time: %.2f s\n', ...
+                       'Settling Time: %.2f s\n', ...
+                       'Max Deviasi/Overshoot: %.2f %%\n', ...
+                       'Min RH: %.2f %%\n', ...
+                       'Steady-State Aktual: %.2f %%\n', ...
+                       'Steady-State Error: %.4f %%\n', ...
+                       '--- Analisis Gangguan ---\n', ...
+                       'Puncak Gangguan: %.2f %%\n', ...
+                       'Recovery Time: %.2f s'], ...
+                       FallTime_Lembab, SettlingTime_Lembab, Overshoot_Lembab, ...
+                       min(AvgLembab), ss_Lembab, error_Lembab, ...
+                       Puncak_Gangguan_Lembab, RecoveryTime_Lembab);
+                       
+annotation('textbox', [0.65 0.15 0.35 0.28], 'String', teks_Lembab, ...
+           'FitBoxToText', 'on', 'BackgroundColor', 'w', 'EdgeColor', 'k', ...
+           'FontName', huruf, 'FontSize', 10);
+
+% GRAFIK 2: Analisis Kerja Aktuator (Logika Eksekusi)
+figure('Name', 'Bab 4: Aksi Kontrol Aktuator', 'Color', 'w', 'Position', [100, 80, 800, 600]);
+subplot(2,1,1);
+stairs(Waktu_Menit, AC, '-m', 'LineWidth', 2); grid on;
+title('Logika Eksekusi Target Suhu AC', 'FontName', huruf, 'FontSize', 12, 'FontWeight', 'bold');
+ylabel('Output Target AC (°C)', 'FontName', huruf); xlabel('Waktu (Menit)', 'FontName', huruf); 
+ylim([15 25]); yticks([16 18 20 22 24]); xlim([0 max(Waktu_Menit)]); 
+
+subplot(2,1,2);
+stairs(Waktu_Menit, Heater, '-k', 'LineWidth', 2); grid on;
+title('Logika Eksekusi Relay Elemen Pemanas', 'FontName', huruf, 'FontSize', 12, 'FontWeight', 'bold');
+ylabel('Level Kerja Heater', 'FontName', huruf); xlabel('Waktu (Menit)', 'FontName', huruf); 
+ylim([-0.5 2.5]); yticks([0 1 2]); yticklabels({'OFF (Lvl 0)', 'Level 1', 'Level 2'}); xlim([0 max(Waktu_Menit)]); 
+
+% GRAFIK 3: Sebaran Spasial 4 Sensor
+figure('Name', 'Bab 4: Distribusi Udara 4 Sensor', 'Color', 'w', 'Position', [150, 110, 800, 600]);
+subplot(2,1,1);
+plot(Waktu_Menit, T1, 'r', Waktu_Menit, T2, 'g', Waktu_Menit, T3, 'b', Waktu_Menit, T4, 'k', 'LineWidth', 1.5); hold on; grid on; 
+yline(setpointSuhu, '--m', 'LineWidth', 2);
+title('Distribusi Temperatur Spasial (4 Sensor DHT22)', 'FontName', huruf, 'FontSize', 12, 'FontWeight', 'bold');
+ylabel('Suhu Ruangan (°C)', 'FontName', huruf); xlabel('Waktu (Menit)', 'FontName', huruf); 
+legend('T1', 'T2', 'T3', 'T4', 'Setpoint', 'Location', 'best'); xlim([0 max(Waktu_Menit)]); 
+
+subplot(2,1,2);
+plot(Waktu_Menit, H1, 'r', Waktu_Menit, H2, 'g', Waktu_Menit, H3, 'b', Waktu_Menit, H4, 'k', 'LineWidth', 1.5); hold on; grid on; 
+yline(setpointLembab, '--m', 'LineWidth', 2);
+title('Distribusi Kelembaban Spasial (4 Sensor DHT22)', 'FontName', huruf, 'FontSize', 12, 'FontWeight', 'bold');
+ylabel('Kelembaban Ruangan (%)', 'FontName', huruf); xlabel('Waktu (Menit)', 'FontName', huruf); 
+legend('H1', 'H2', 'H3', 'H4', 'Setpoint', 'Location', 'best'); xlim([0 max(Waktu_Menit)]); 
+
+fprintf('Pemrosesan grafik selesai!\n');
